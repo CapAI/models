@@ -44,33 +44,42 @@ import numpy as np
 import PIL.Image as pil
 import tensorflow as tf
 
+import random
+import contextlib2
+from object_detection.dataset_tools import tf_record_creation_util
+
 from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
 from object_detection.utils.np_box_ops import iou
 
 tf.app.flags.DEFINE_string('data_dir', '', 'Location of root directory for the '
                            'data. Folder structure is assumed to be:'
-                           '<data_dir>/training/label_2 (annotations) and'
-                           '<data_dir>/data_object_image_2/training/image_2'
+                           '<data_dir>/<type>/label_2 (annotations) and'
+                           '<data_dir>/data_object_image_2/<type>/image_2'
                            '(images).')
 tf.app.flags.DEFINE_string('output_path', '', 'Path to which TFRecord files'
                            'will be written. The TFRecord with the training set'
-                           'will be located at: <output_path>_train.tfrecord.'
+                           'will be located at: <output_path>/train.tfrecord.'
                            'And the TFRecord with the validation set will be'
-                           'located at: <output_path>_val.tfrecord')
-tf.app.flags.DEFINE_string('classes_to_use', 'car,pedestrian,dontcare',
+                           'located at: <output_path>/val.tfrecord')
+tf.app.flags.DEFINE_string('classes_to_use', 'boat',
                            'Comma separated list of class names that will be'
                            'used. Adding the dontcare class will remove all'
                            'bboxs in the dontcare regions.')
 tf.app.flags.DEFINE_string('label_map_path', 'data/kitti_label_map.pbtxt',
                            'Path to label map proto.')
+tf.app.flags.DEFINE_string('data_type', 'training',
+                           '"training" or "testing", when testing is used we advise'
+                            'to set validation_set_size to 0')
 tf.app.flags.DEFINE_integer('validation_set_size', '500', 'Number of images to'
                             'be used as a validation set.')
+tf.app.flags.DEFINE_integer('num_shards', 100, 'Number of TFRecord shards')
 FLAGS = tf.app.flags.FLAGS
 
 
 def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
-                               label_map_path, validation_set_size):
+                               label_map_path, validation_set_size,
+                               data_type, num_shards):
   """Convert the KITTI detection dataset to TFRecords.
 
   Args:
@@ -94,45 +103,80 @@ def convert_kitti_to_tfrecords(data_dir, output_path, classes_to_use,
   label_map_dict = label_map_util.get_label_map_dict(label_map_path)
   train_count = 0
   val_count = 0
-
+  test_count = 0
+  
   annotation_dir = os.path.join(data_dir,
                                 'training',
                                 'label_2')
-
   image_dir = os.path.join(data_dir,
                            'data_object_image_2',
                            'training',
                            'image_2')
+  annotation_dir_test = os.path.join(data_dir,
+                                'testing',
+                                'label_2')
+  image_dir_test = os.path.join(data_dir,
+                           'data_object_image_2',
+                           'testing',
+                           'image_2')
+  
+  with contextlib2.ExitStack() as tf_record_close_stack:
+    output_tfrecords = tf_record_creation_util.open_sharded_output_tfrecords(
+        tf_record_close_stack, os.path.join(output_path, 'train.tfrecord'),
+        num_shards)
 
-  train_writer = tf.python_io.TFRecordWriter('%s_train.tfrecord'%
-                                             output_path)
-  val_writer = tf.python_io.TFRecordWriter('%s_val.tfrecord'%
-                                           output_path)
+    val_writer = tf.python_io.TFRecordWriter(
+        os.path.join(output_path, 'val.tfrecord'))
 
-  images = sorted(tf.gfile.ListDirectory(image_dir))
-  for img_name in images:
-    img_num = int(img_name.split('.')[0])
-    is_validation_img = img_num < validation_set_size
-    img_anno = read_annotation_file(os.path.join(annotation_dir,
-                                                 str(img_num).zfill(6)+'.txt'))
+    images = sorted(tf.gfile.ListDirectory(image_dir))
+    val_images = random.sample(images, validation_set_size)
+    for n, img_name in enumerate(images):
+      img_str = img_name.split('.')[0]
+      if img_str == '':
+        continue
+  #     img_num = int(img_str)
+      # is_validation_img = img_num < validation_set_size
+      img_anno = read_annotation_file(os.path.join(annotation_dir,
+                                                  str(img_str)+'.txt')) # .zfill(6)
 
-    image_path = os.path.join(image_dir, img_name)
+      image_path = os.path.join(image_dir, img_name)
 
-    # Filter all bounding boxes of this frame that are of a legal class, and
-    # don't overlap with a dontcare region.
-    # TODO(talremez) filter out targets that are truncated or heavily occluded.
+      # Filter all bounding boxes of this frame that are of a legal class, and
+      # don't overlap with a dontcare region.
+      # TODO(talremez) filter out targets that are truncated or heavily occluded.
+      annotation_for_image = filter_annotations(img_anno, classes_to_use)
+
+      example = prepare_example(image_path, annotation_for_image, label_map_dict)
+      if img_name in val_images:
+        val_writer.write(example.SerializeToString())
+        val_count += 1
+      else:
+        shard_idx = train_count % num_shards
+        output_tfrecords[shard_idx].write(example.SerializeToString())
+        # train_writer.write(example.SerializeToString())
+        train_count += 1
+
+    val_writer.close()
+
+  test_file = os.path.join(output_path, 'test.tfrecord')
+  test_writer = tf.python_io.TFRecordWriter(test_file)
+
+  test_images = sorted(tf.gfile.ListDirectory(image_dir_test))
+  for n, img_name in enumerate(test_images):
+    img_str = img_name.split('.')[0]
+    if img_str == '':
+      continue
+    img_anno = read_annotation_file(os.path.join(annotation_dir_test,
+                                              str(img_str)+'.txt')) # .zfill(6)
+    image_path = os.path.join(image_dir_test, img_name)
     annotation_for_image = filter_annotations(img_anno, classes_to_use)
 
     example = prepare_example(image_path, annotation_for_image, label_map_dict)
-    if is_validation_img:
-      val_writer.write(example.SerializeToString())
-      val_count += 1
-    else:
-      train_writer.write(example.SerializeToString())
-      train_count += 1
+    test_writer.write(example.SerializeToString())
+    test_count += 1
 
-  train_writer.close()
-  val_writer.close()
+  test_writer.close()
+    
 
 
 def prepare_example(image_path, annotations, label_map_dict):
@@ -304,7 +348,9 @@ def main(_):
       output_path=FLAGS.output_path,
       classes_to_use=FLAGS.classes_to_use.split(','),
       label_map_path=FLAGS.label_map_path,
-      validation_set_size=FLAGS.validation_set_size)
+      validation_set_size=FLAGS.validation_set_size,
+      data_type=FLAGS.data_type,
+      num_shards = FLAGS.num_shards)
 
 if __name__ == '__main__':
   tf.app.run()

@@ -26,15 +26,9 @@ class FasterRCNNMetaArchTest(
     faster_rcnn_meta_arch_test_lib.FasterRCNNMetaArchTestBase,
     parameterized.TestCase):
 
-  @parameterized.parameters(
-      {'use_keras': True},
-      {'use_keras': False}
-  )
-  def test_postprocess_second_stage_only_inference_mode_with_masks(
-      self, use_keras=False):
+  def test_postprocess_second_stage_only_inference_mode_with_masks(self):
     model = self._build_model(
-        is_training=False, use_keras=use_keras,
-        number_of_stages=2, second_stage_batch_size=6)
+        is_training=False, number_of_stages=2, second_stage_batch_size=6)
 
     batch_size = 2
     total_num_padded_proposals = batch_size * model.max_num_proposals
@@ -91,15 +85,9 @@ class FasterRCNNMetaArchTest(
       self.assertTrue(np.amax(detections_out['detection_masks'] <= 1.0))
       self.assertTrue(np.amin(detections_out['detection_masks'] >= 0.0))
 
-  @parameterized.parameters(
-      {'use_keras': True},
-      {'use_keras': False}
-  )
-  def test_postprocess_second_stage_only_inference_mode_with_calibration(
-      self, use_keras=False):
+  def test_postprocess_second_stage_only_inference_mode_with_calibration(self):
     model = self._build_model(
-        is_training=False, use_keras=use_keras,
-        number_of_stages=2, second_stage_batch_size=6,
+        is_training=False, number_of_stages=2, second_stage_batch_size=6,
         calibration_mapping_value=0.5)
 
     batch_size = 2
@@ -159,15 +147,9 @@ class FasterRCNNMetaArchTest(
       self.assertTrue(np.amax(detections_out['detection_masks'] <= 1.0))
       self.assertTrue(np.amin(detections_out['detection_masks'] >= 0.0))
 
-  @parameterized.parameters(
-      {'use_keras': True},
-      {'use_keras': False}
-  )
-  def test_postprocess_second_stage_only_inference_mode_with_shared_boxes(
-      self, use_keras=False):
+  def test_postprocess_second_stage_only_inference_mode_with_shared_boxes(self):
     model = self._build_model(
-        is_training=False, use_keras=use_keras,
-        number_of_stages=2, second_stage_batch_size=6)
+        is_training=False, number_of_stages=2, second_stage_batch_size=6)
 
     batch_size = 2
     total_num_padded_proposals = batch_size * model.max_num_proposals
@@ -206,13 +188,11 @@ class FasterRCNNMetaArchTest(
       self.assertAllClose(detections_out['num_detections'], [5, 4])
 
   @parameterized.parameters(
-      {'masks_are_class_agnostic': False, 'use_keras': True},
-      {'masks_are_class_agnostic': True, 'use_keras': True},
-      {'masks_are_class_agnostic': False, 'use_keras': False},
-      {'masks_are_class_agnostic': True, 'use_keras': False},
+      {'masks_are_class_agnostic': False},
+      {'masks_are_class_agnostic': True},
   )
   def test_predict_correct_shapes_in_inference_mode_three_stages_with_masks(
-      self, masks_are_class_agnostic, use_keras):
+      self, masks_are_class_agnostic):
     batch_size = 2
     image_size = 10
     max_num_proposals = 8
@@ -252,7 +232,6 @@ class FasterRCNNMetaArchTest(
       with test_graph.as_default():
         model = self._build_model(
             is_training=False,
-            use_keras=use_keras,
             number_of_stages=3,
             second_stage_batch_size=2,
             predict_masks=True,
@@ -271,8 +250,7 @@ class FasterRCNNMetaArchTest(
           set(tensor_dict_out.keys()),
           set(expected_shapes.keys()).union(
               set([
-                  'detection_boxes', 'detection_scores',
-                  'detection_multiclass_scores', 'detection_classes',
+                  'detection_boxes', 'detection_scores', 'detection_classes',
                   'detection_masks', 'num_detections', 'mask_predictions',
                   'raw_detection_boxes', 'raw_detection_scores'
               ])))
@@ -289,18 +267,15 @@ class FasterRCNNMetaArchTest(
                           [10, num_classes, 14, 14])
 
   @parameterized.parameters(
-      {'masks_are_class_agnostic': False, 'use_keras': True},
-      {'masks_are_class_agnostic': True, 'use_keras': True},
-      {'masks_are_class_agnostic': False, 'use_keras': False},
-      {'masks_are_class_agnostic': True, 'use_keras': False},
+      {'masks_are_class_agnostic': False},
+      {'masks_are_class_agnostic': True},
   )
   def test_predict_gives_correct_shapes_in_train_mode_both_stages_with_masks(
-      self, masks_are_class_agnostic, use_keras):
+      self, masks_are_class_agnostic):
     test_graph = tf.Graph()
     with test_graph.as_default():
       model = self._build_model(
           is_training=True,
-          use_keras=use_keras,
           number_of_stages=3,
           second_stage_batch_size=7,
           predict_masks=True,
@@ -373,11 +348,7 @@ class FasterRCNNMetaArchTest(
             tensor_dict_out['rpn_objectness_predictions_with_background'].shape,
             (2, num_anchors_out, 2))
 
-  @parameterized.parameters(
-      {'use_keras': True},
-      {'use_keras': False}
-  )
-  def test_postprocess_third_stage_only_inference_mode(self, use_keras=False):
+  def test_postprocess_third_stage_only_inference_mode(self):
     num_proposals_shapes = [(2), (None)]
     refined_box_encodings_shapes = [(16, 2, 4), (None, 2, 4)]
     class_predictions_with_background_shapes = [(16, 3), (None, 3)]
@@ -393,7 +364,7 @@ class FasterRCNNMetaArchTest(
       tf_graph = tf.Graph()
       with tf_graph.as_default():
         model = self._build_model(
-            is_training=False, use_keras=use_keras, number_of_stages=3,
+            is_training=False, number_of_stages=3,
             second_stage_batch_size=6, predict_masks=True)
         total_num_padded_proposals = batch_size * model.max_num_proposals
         proposal_boxes = np.array(
